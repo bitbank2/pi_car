@@ -1,0 +1,20 @@
+*** pi_car ***
+
+pi_car is a C program for controlling a motorized car from a Raspberry Pi.
+
+In the current iteration, it uses SDL to read the analog stick position
+from a bluetooth gamepad to control the car speed and direction. PIGPIO is used
+to translate that information into PWM signals to send to the motors via GPIO.
+Future versions of this project will take speed information gathered from
+opto-isolated switches and distance info from an IR time-of-flight detector
+to add more interesting functions (e.g. distance measurements, crash avoidance).
+
+To build the project, simply type 'make' in a terminal window.
+To run it, type './pi_car'
+Make sure your bluetooth gamepad is connected before starting the program.
+To quit, press any button on the gamepad (for now).
+
+Copyright (c) 2017 by Larry Bank
+Project started 8/1/2017
+bitbank@pobox.com
+
