@@ -35,17 +35,62 @@ static SDL_Joystick *joy0;
 #define Y_AXIS 1
 static int iJoyAxis[8];
 volatile int iLSpeed, iRSpeed; // left and right side motor speeds
+volatile int iLCount, iRCount; // opto switch counters
 static int iPWML0, iPWML1, iPWMR0, iPWMR1;
+static int iOptoL, iOptoR;
 // Header pins used to run the motor controller
 #define LEFTGPIO_PLUS 11
 #define LEFTGPIO_MINUS 13
 #define RIGHTGPIO_PLUS 15
 #define RIGHTGPIO_MINUS 16
+#define LEFT_OPTO 18
+#define RIGHT_OPTO 22
 
 // Table to translate header pin numbers into PIGPIO GPIO numbers
 static unsigned char ucPIGPins[] = {0xff,0xff,0xff,2,0xff,3,0xff,4,14,0xff,15,
                        17,18,27,0xff,22,23,0xff,24,10,0xff,9,25,11,8,0xff,7,0,1,
                        5,0xff,6,12,13,0xff,19,16,26,20,0xff,21};
+//
+// Callback (interrupt) function to count pulses from the opto switches
+//
+void CounterCallback(int iGPIO, int iLevel, uint32_t u32Tick)
+{
+	if (iGPIO == iOptoL) // which sensor triggered?
+		iLCount++;
+	else
+		iRCount++;
+} /* CounterCallback() */
+ 
+//
+// Return the current time in milliseconds
+//
+int MilliTime()
+{
+int iTime;
+struct timespec res;
+
+    clock_gettime(CLOCK_MONOTONIC, &res);
+    iTime = 1000*res.tv_sec + res.tv_nsec/1000000;
+
+    return iTime;
+} /* MilliTime() */
+
+//
+// Wheels are 65mm in diameter (204.2mm circumference)
+// Each wheel encoder has 20 slots = 10.21mm per tick
+// Convert the number of ticks into meters per second
+//
+float WheelSpeed(int iTicks, int iDeltaTime)
+{
+float fSpeed;
+
+	if (iDeltaTime < 0) return 0.0f; // first time through
+
+	fSpeed = (float)iTicks * 10.21f; // distance traveled
+	fSpeed = fSpeed / (float)iDeltaTime; // millimeters / milliseconds
+	return fSpeed;
+} /* WheelSpeed() */
+
 //
 // Convert joystick axis position into L/R speed values (+/- 0-255)
 //
@@ -159,7 +204,7 @@ static int SG_SDLEventFilter(void *userdata, SDL_Event *event)
 //
 int Setup(void)
 {
-
+int i;
 	if (gpioInitialise() < 0)
         {
                 printf("pigpio failed to initialize\n");
@@ -187,10 +232,23 @@ int Setup(void)
 		return 0;
 	}
 // Set up the PIGPIO pin numbers
+// PWM motor outputs
    iPWML0 = ucPIGPins[LEFTGPIO_PLUS];
    iPWML1 = ucPIGPins[LEFTGPIO_MINUS];
    iPWMR0 = ucPIGPins[RIGHTGPIO_PLUS];
    iPWMR1 = ucPIGPins[RIGHTGPIO_MINUS];
+
+// Opto interrupter switches
+   iOptoL = ucPIGPins[LEFT_OPTO];
+   iOptoR = ucPIGPins[RIGHT_OPTO];
+   iLCount = iRCount = 0; // tick counters
+
+// Add interrupt callback for the 2 opto sensors
+   i = gpioSetISRFunc(iOptoL, RISING_EDGE, 0, CounterCallback);
+   if (i != 0) printf("Error registering left opto callback\n");
+   i = gpioSetISRFunc(iOptoR, RISING_EDGE, 0, CounterCallback); 
+   if (i != 0) printf("Error registering right opto callback\n");
+
    return 1; // success
 } /* Setup() */
 
@@ -201,7 +259,11 @@ int Setup(void)
 //
 void Terminate(void)
 {
-	gpioTerminate();
+// remove the interrupt callback from the 2 opto sensor inputs
+   gpioSetISRFunc(iOptoL, RISING_EDGE, 0, NULL);
+   gpioSetISRFunc(iOptoR, RISING_EDGE, 0, NULL);
+
+   gpioTerminate();
 } /* Terminate() */
 
 //
@@ -210,16 +272,27 @@ void Terminate(void)
 int main(int argc, char **argv)
 {
 SDL_Event event;
+int iTime, i, iDeltaTime;
+float fLSpeed, fRSpeed;
+int iTick;
 
 	if (Setup() == 0) goto quit;
-
+	iTime = iTick = 0;
 	while (iJoyBits == 0) // quit when a button is pressed (for now)
 	{
 		while (SDL_PollEvent(&event)) {}; // process any queued events
 		JoyToSpeed(); // convert position to speed
 		SetSpeed(); // update the motor control pins
-		printf("L speed: %d, R speed: %d\n", iLSpeed, iRSpeed);
-		usleep(33000); // update at around 30x per second
+		i = MilliTime();
+		iDeltaTime = i - iTime; // new delta
+		iTime = i;
+		fLSpeed = WheelSpeed(iLCount, iDeltaTime);
+		fRSpeed = WheelSpeed(iRCount, iDeltaTime);
+		iLCount = iRCount = 0;
+		if ((iTick & 7) == 0) // update 4x per second
+			printf("L speed %01.3f M/s, R speed %01.3f\n", fLSpeed, fRSpeed);
+		usleep(33000); // update total control loop at around 30x per second
+		iTick++;
 	}
 quit:
 	Terminate();
