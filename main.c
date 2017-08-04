@@ -283,14 +283,16 @@ int iTick;
 		while (SDL_PollEvent(&event)) {}; // process any queued events
 		JoyToSpeed(); // convert position to speed
 		SetSpeed(); // update the motor control pins
-		i = MilliTime();
-		iDeltaTime = i - iTime; // new delta
-		iTime = i;
-		fLSpeed = WheelSpeed(iLCount, iDeltaTime);
-		fRSpeed = WheelSpeed(iRCount, iDeltaTime);
-		iLCount = iRCount = 0;
 		if ((iTick & 7) == 0) // update 4x per second
+		{
+			i = MilliTime();
+			iDeltaTime = i - iTime; // new delta
+			iTime = i;
+			fLSpeed = WheelSpeed(iLCount, iDeltaTime);
+			fRSpeed = WheelSpeed(iRCount, iDeltaTime);
+			iLCount = iRCount = 0;
 			printf("L speed %01.3f M/s, R speed %01.3f\n", fLSpeed, fRSpeed);
+		}
 		usleep(33000); // update total control loop at around 30x per second
 		iTick++;
 	}
